@@ -22,16 +22,16 @@ know. Both are found by bringing the arm's tip onto fixed reference points in se
 
 The references are either:
 
-- dots: pen dots on the table the arm is clamped flat to, within reach (one near the base, one far
-  out in front, one to the side). The arm is released and its tip rested in each dot by hand.
+- dots: pen dots on the table the arm is clamped flat to, spread over its reach (near the base, far
+  out in front, to either side). The arm is released and its tip rested in each dot by hand.
   Dots find joint zeros, the tool centre point, or both.
 - pin: a sharp point fixed within reach. The arm is jogged under its own control (a teach
   pendant, teleoperation, servoing) until the tool's point meets the pin's, then reoriented and
   jogged onto it again. A pin finds the tool centre point.
 
-For each reference, five shapes: the tool straight down, then leaning towards the base, away from
-it, and to either side; turning the tool about its own axis between touches helps too. Hold still
-and press Enter for each. The fit prints each value with its uncertainty and how far the tip was
+For each reference, the profile's shapes: the tool straight down, then leaning towards the base,
+away from it, and, where the wrist can, to either side; turning the tool about its own axis
+between touches helps too. Hold still and press Enter for each. The fit prints each value with its uncertainty and how far the tip was
 from its references, and writes joint_zeros.yaml, tcp.yaml and the corrected URDF.
 
     calibrate_arm --solve zeros --reference dots --out ~/arm_cal                    # zeros by eye
@@ -59,7 +59,6 @@ from arm_calibration import fit as arm_fit
 from arm_calibration import profiles
 from arm_calibration.urdf_chain import Chain, add_tcp, apply_zeros
 
-SHAPES = ("down", "towards", "away", "left", "right")
 # A touch further than this from the fit's reference, metres, is named for redoing.
 SUSPECT_M = 0.002
 # A zero measured no better than this, degrees (one standard deviation), is named as poorly measured.
@@ -71,15 +70,16 @@ RELEASE = {"dots": "lifecycle", "pin": "none"}
 
 
 def shape_words(shape: str, tilt_deg: float) -> str:
-    if shape == "down":
+    direction, tilt = profiles.parse_shape(shape, tilt_deg)
+    if direction == "down":
         return "the tool straight down"
     way = {
         "towards": "towards the arm's base",
         "away": "away from the base",
         "left": "to the left",
         "right": "to the right",
-    }[shape]
-    return f"the tool leaning about {tilt_deg:.0f} degrees {way}"
+    }[direction]
+    return f"the tool leaning about {tilt:.0f} degrees {way}"
 
 
 def lean(chain: Chain, positions: dict[str, float], tool_axis) -> str:
@@ -140,10 +140,10 @@ def record(args, profile: profiles.Profile, arm, chain: Chain, out: pathlib.Path
     name = "Dot" if args.reference == "dots" else "Pin"
     for point in range(args.count):
         shape = 0
-        while shape < len(SHAPES):
+        while shape < len(profile.shapes):
             answer = (
                 input(
-                    f"\n{name} {point + 1}, {shape_words(SHAPES[shape], profile.tilt_deg)}. "
+                    f"\n{name} {point + 1}, {shape_words(profile.shapes[shape], profile.tilt_deg)}. "
                     "Enter to record, s to skip, q to finish: "
                 )
                 .strip()
@@ -158,7 +158,7 @@ def record(args, profile: profiles.Profile, arm, chain: Chain, out: pathlib.Path
             if positions is None:
                 print("  the arm moved while recording: hold it still and press Enter again")
                 continue
-            saved.append({"dot": point, "shape": SHAPES[shape], "positions": positions})
+            saved.append({"dot": point, "shape": profile.shapes[shape], "positions": positions})
             (out / "touches.json").write_text(
                 json.dumps(
                     {

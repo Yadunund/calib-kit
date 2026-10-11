@@ -23,8 +23,10 @@ A profile names:
   (`reference`: `dots` on the table or a sharp `pin`);
 - the `free_joints` whose zeros touches can find, and why the others are held (`held_joints`);
 - the link a measured tool centre point is added as (`tcp_link`, fixed to `tip_link`);
-- the table's normal in the base frame (`plane_normal`), how many dots to touch (`dots`) and how
-  far to lean the tool (`tilt_deg`).
+- the table's normal in the base frame (`plane_normal`) and how many dots to touch (`dots`);
+- the shapes to touch each reference in (`shapes`): `down`, or a lean `towards` the base, `away`
+  from it, to the `left` or the `right`, by `tilt_deg` or by the degrees given (`away 20`). An arm
+  whose wrist cannot lean sideways lists only the leans it can make.
 
 Nothing in it is about the arm's hardware: that is ros2_control's.
 
@@ -41,6 +43,7 @@ import yaml
 
 ARMS = pathlib.Path(__file__).parent / "arms"
 DEFAULT = "so101"
+DIRECTIONS = ("down", "towards", "away", "left", "right")
 SOLVES = ("zeros", "tcp", "zeros+tcp")
 
 
@@ -61,6 +64,7 @@ class Profile:
     plane_normal: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0])
     dots: int = 3
     tilt_deg: float = 40.0
+    shapes: list[str] = field(default_factory=lambda: list(DIRECTIONS))
     path: pathlib.Path | None = None
 
 
@@ -83,4 +87,16 @@ def load(name_or_path: str) -> Profile:
     profile = Profile(**data, path=path)
     if profile.solve not in SOLVES:
         raise ValueError(f"{path}: solve is one of {', '.join(SOLVES)}")
+    for shape in profile.shapes:
+        parse_shape(shape, profile.tilt_deg, path)
     return profile
+
+
+def parse_shape(shape: str, tilt_deg: float, where="") -> tuple[str, float]:
+    """A shape (`away`, `away 20`, `down`) as its direction and its lean, degrees."""
+    words = str(shape).split()
+    if not words or words[0] not in DIRECTIONS or len(words) > 2:
+        raise ValueError(f"{where}: shape {shape!r} is a direction ({', '.join(DIRECTIONS)}) and an optional lean")
+    if words[0] == "down":
+        return "down", 0.0
+    return words[0], float(words[1]) if len(words) == 2 else float(tilt_deg)

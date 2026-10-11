@@ -17,5 +17,8 @@ held_joints:
   shoulder_pan_joint: its axis is the table's normal through the base, so turning it turns every dot with it
   wrist_roll_joint: its axis passes almost through the closed tips, so turning it barely moves them
 plane_normal: [0, 0, 1]
-dots: 3
+# The wrist pitches but cannot lean sideways: lean twice each way, in the plane the arm reaches in,
+# on five dots.
+dots: 5
+shapes: [down, towards 20, towards 40, away 20, away 40]
 tilt_deg: 40

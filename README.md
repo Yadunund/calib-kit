@@ -46,14 +46,14 @@ onto a fixed reference in several orientations, and folds them into the URDF:
 
 ```mermaid
 flowchart LR
-    A["Pen dots on the table,<br/>or a sharp pin"] --> B["Bring the arm's tip onto<br/>each, in 5 arm shapes"]
+    A["Pen dots on the table,<br/>or a sharp pin"] --> B["Bring the arm's tip onto<br/>each, in several arm shapes"]
     B --> C["Fit the joint zeros and<br/>the tool centre point"]
     C --> D["joint_zeros.yaml, tcp.yaml<br/>+ corrected URDF"]
     D --> E["Planning, TF, RViz,<br/>simulation"]
 ```
 
 ```bash
-# Joint zeros: clamp the arm flat to a table, mark three dots, and touch each in five shapes.
+# Joint zeros: clamp the arm flat to a table, mark five dots, and touch each in the shapes asked.
 ros2 run arm_calibration calibrate_arm --profile so101 --solve zeros --reference dots --out ~/arm_cal
 # A tool centre point: jog the tool's point onto a fixed pin in five orientations.
 ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --reference pin --out ~/arm_cal
@@ -63,13 +63,13 @@ ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --refer
 It reports each value with its uncertainty, and why any joint is held:
 
 ```text
-15 touches on 3 dots; the closed jaw tips 0.63 mm rms from them after the fit.
-  shoulder_lift_joint       +1.73 deg  (+- 0.36)
-  elbow_flex_joint          -2.63 deg  (+- 0.49)
-  wrist_flex_joint          +3.17 deg  (+- 0.39)
+20 touches on 5 dots; the closed jaw tips 0.62 mm rms from them after the fit.
+  shoulder_lift_joint       +1.74 deg  (+- 0.17)
+  elbow_flex_joint          -2.31 deg  (+- 0.12)
+  wrist_flex_joint          +2.86 deg  (+- 0.14)
   shoulder_pan_joint       held: its axis is the table's normal through the base, so turning it turns every dot with it
   wrist_roll_joint         held: its axis passes almost through the closed tips, so turning it barely moves them
-  the closed jaw tips at [0.3 0.  6.3] mm in gripper_frame_link
+  the closed jaw tips at [0.1 0.  6.2] mm in gripper_frame_link
 ```
 
 **Works with any ros2_control arm.** The tool reads `/robot_description` and `/joint_states`. To
@@ -85,6 +85,13 @@ stays under its own control. The
 Adding an arm is a YAML profile: its base and tip links, what to calibrate and against what, and
 where the tip is.
 See [Arms](arm_calibration/README.md#arms).
+
+## Docs
+
+What calib-kit and each calibration are for, and exactly what they do, is defined in
+[`docs/`](docs): an `intent.md` and a `spec.md` for the toolkit, and for each calibration
+([`arm_calibration`](docs/arm_calibration/spec.md)). [AGENTS.md](AGENTS.md) says how the repository
+is developed from them.
 
 ## Getting started
 
@@ -106,9 +113,9 @@ pixi run test
 
 ## Contributing
 
-New calibrations are welcome. Each one is its own package in this repository, and follows the
-same rules: it measures with the robot itself, writes its result where the stack already looks,
-and states the ROS interfaces it needs as a contract in its README.
+New calibrations are welcome. Each one is its own package in this repository, starts as an intent
+and a spec written from [`docs/templates/`](docs/templates), and follows the rules in
+[`docs/spec.md`](docs/spec.md). [AGENTS.md](AGENTS.md) has the workflow.
 
 ## Licence
 

@@ -145,18 +145,21 @@ def controller_states(arm):
 
 
 def test_description_and_joint_states_arrive(stack):
+    """ARM-IF-1, ARM-IF-2"""
     arm, _urdf = stack
     assert "<robot" in arm.description()
     assert arm.positions(JOINTS) == pytest.approx(dict.fromkeys(JOINTS, 0.1))
 
 
 def test_the_hardware_is_found_from_the_chains_joints(stack):
+    """ARM-IF-3, ARM-REL-1"""
     arm, _ = stack
     assert arm.hardware_for(JOINTS).name == "MockArm"
     assert arm.hardware_for(JOINTS, "MockArm").name == "MockArm"
 
 
 def test_release_and_restore(stack):
+    """ARM-IF-3, ARM-REL-2, ARM-REL-3, ARM-REL-4"""
     from lifecycle_msgs.msg import State
 
     arm, _ = stack
@@ -179,6 +182,7 @@ def test_release_and_restore(stack):
 
 
 def test_the_tool_restores_the_arm_however_it_ends(stack, tmp_path, monkeypatch):
+    """ARM-REL-4, ARM-REC-4, ARM-NO-3"""
     from lifecycle_msgs.msg import State
 
     from arm_calibration import calibrate_arm

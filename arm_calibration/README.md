@@ -28,8 +28,8 @@ The references are not measured; their positions are fitted too.
 
 - **Pen dots** lie on the table the arm is clamped to, so on one plane, with a known normal (the
   base's own z axis for an arm clamped flat) and a fitted height. That plane is what fixes a
-  shoulder that lifts the arm, so joint zeros need dots: three or more, spread out (one near the
-  base, one far out in front, one to the side).
+  shoulder that lifts the arm, so joint zeros need dots: three or more, spread over the arm's
+  reach (near the base, far out in front, to either side).
 - **A sharp pin**, fixed anywhere within reach, is the industrial way to find a TCP: the tool's
   point is jogged onto the pin's in four or more orientations. A pin fixes the TCP, not the
   zeros.
@@ -86,7 +86,7 @@ a copy, `<ros2_control>` tags and all.
 With the arm's ros2_control stack running:
 
 ```bash
-# Joint zeros, from three pen dots on the table, the arm guided by hand (the SO-ARM101's default).
+# Joint zeros, from five pen dots on the table, the arm guided by hand (the SO-ARM101's default).
 ros2 run arm_calibration calibrate_arm --out ~/so101_cal
 
 # A TCP, from a sharp pin, the arm jogged under its own control.
@@ -96,9 +96,10 @@ ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --refer
 ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve zeros+tcp --reference dots --out ~/my_arm_cal
 ```
 
-- **For each reference, five shapes:** the tool straight down, then leaning about 40 degrees
-  towards the base, away from it, and to either side. Turning the tool about its own axis between
-  touches helps too. Bring the tip onto the reference, hold still, press Enter. The tool says how
+- **For each reference, the profile's shapes:** the tool straight down, then leaning towards the
+  base, away from it, and to either side (by default 40 degrees each). An arm whose wrist cannot
+  lean sideways leans twice each way instead. Turning the tool about its own axis between touches
+  helps too. Bring the tip onto the reference, hold still, press Enter. The tool says how
   the tool leans in each touch, so you can check the shape; a shape the arm cannot take there can
   be skipped.
 - **The result** is each value with its uncertainty, and how far the tip was from its
@@ -153,8 +154,9 @@ held_joints:                  # the rest of the chain's joints, and why
   shoulder_pan_joint: its axis is the table's normal through the base
   wrist_roll_joint: its axis passes almost through the closed tips
 plane_normal: [0, 0, 1]       # the table's normal in the base frame
-dots: 3
-tilt_deg: 40
+dots: 5
+shapes: [down, towards 20, towards 40, away 20, away 40]  # its wrist cannot lean sideways
+tilt_deg: 40                  # the lean of a shape given without one
 ```
 
 An industrial arm with a tool needs only its chain and what to calibrate, for example:
