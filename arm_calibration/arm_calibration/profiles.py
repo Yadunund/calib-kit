@@ -14,12 +14,19 @@
 
 """Arm profiles: what the calibration needs to know about one kind of arm, in a YAML file.
 
-A profile names the chain's `base_link` and `tip_link` (the frame nearest the point that touches
-the dots), what touches the dots (`tip`), where it is in that frame (`tip_offset`, metres) and
-which way the tool points (`tool_axis`), the
-`free_joints` whose zeros touches can find (`fit`) and why the others are held (`held_joints`), the
-table's normal in the base frame (`plane_normal`), how many dots to touch (`dots`) and how far to
-lean the tool (`tilt_deg`). Nothing in it is about the arm's hardware: that is ros2_control's.
+A profile names:
+
+- the chain: `base_link`, and `tip_link`, the frame nearest the point that touches the references;
+- the tip: what touches the references (`tip`), where it is expected in `tip_link` (`tip_offset`,
+  metres) and which of `tip_link`'s axes points out of the tool (`tool_axis`);
+- what to calibrate by default (`solve`: `zeros`, `tcp` or `zeros+tcp`) and against what
+  (`reference`: `dots` on the table or a sharp `pin`);
+- the `free_joints` whose zeros touches can find, and why the others are held (`held_joints`);
+- the link a measured tool centre point is added as (`tcp_link`, fixed to `tip_link`);
+- the table's normal in the base frame (`plane_normal`), how many dots to touch (`dots`) and how
+  far to lean the tool (`tilt_deg`).
+
+Nothing in it is about the arm's hardware: that is ros2_control's.
 
 Profiles shipped with the package are in `arms/` and are named by their file's stem (``so101``);
 any other is given by its path.
@@ -34,6 +41,7 @@ import yaml
 
 ARMS = pathlib.Path(__file__).parent / "arms"
 DEFAULT = "so101"
+SOLVES = ("zeros", "tcp", "zeros+tcp")
 
 
 @dataclass
@@ -41,8 +49,11 @@ class Profile:
     name: str
     base_link: str
     tip_link: str
-    free_joints: list[str]
+    free_joints: list[str] = field(default_factory=list)
     description: str = ""
+    solve: str = "zeros"
+    reference: str = "dots"
+    tcp_link: str = "tcp_link"
     tip: str = "the tip"
     tool_axis: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0])
     tip_offset: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -70,4 +81,6 @@ def load(name_or_path: str) -> Profile:
     if unknown:
         raise ValueError(f"{path}: unknown settings {', '.join(sorted(unknown))}")
     profile = Profile(**data, path=path)
+    if profile.solve not in SOLVES:
+        raise ValueError(f"{path}: solve is one of {', '.join(SOLVES)}")
     return profile

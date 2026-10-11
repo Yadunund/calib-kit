@@ -181,14 +181,14 @@ def test_release_and_restore(stack):
 def test_the_tool_restores_the_arm_however_it_ends(stack, tmp_path, monkeypatch):
     from lifecycle_msgs.msg import State
 
-    from arm_calibration import calibrate_zeros
+    from arm_calibration import calibrate_arm
 
     arm, _ = stack
     (tmp_path / "arm.yaml").write_text("name: mock\nbase_link: base\ntip_link: tip\nfree_joints: [lift]\n")
     answers = iter(["", "q"])  # hold the arm; then quit before any touch
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     with pytest.raises(SystemExit, match="no touches recorded"):
-        calibrate_zeros.main(["--profile", str(tmp_path / "arm.yaml"), "--out", str(tmp_path)])
+        calibrate_arm.main(["--profile", str(tmp_path / "arm.yaml"), "--out", str(tmp_path)])
     assert arm.hardware_for(JOINTS).state.id == State.PRIMARY_STATE_ACTIVE
     assert controller_states(arm)["arm_controller"] == "active"
     assert (tmp_path / "description.urdf").read_text().startswith("<")

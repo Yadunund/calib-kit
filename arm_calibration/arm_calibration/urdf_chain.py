@@ -168,3 +168,31 @@ def apply_zeros(urdf: str, zeros: dict[str, float]) -> str:
     if missing:
         raise ValueError(f"no such joints in the description: {', '.join(sorted(missing))}")
     return ET.tostring(root, encoding="unicode")
+
+
+def add_tcp(urdf: str, parent: str, name: str, xyz) -> str:
+    """The URDF text with link `name` fixed to `parent` at `xyz` (metres, in `parent`'s frame), its
+    axes `parent`'s: the tool centre point. A link of that name already fixed to `parent` is
+    moved there instead."""
+    root = ET.fromstring(urdf)
+    if root.find(f"link[@name='{parent}']") is None:
+        raise ValueError(f"no link {parent!r} in the description")
+    position = " ".join(f"{float(v):.12g}" for v in xyz)
+    for element in root.findall("joint"):
+        if element.find("child").get("link") == name:
+            if element.get("type") != "fixed" or element.find("parent").get("link") != parent:
+                raise ValueError(f"{name} is already in the description, but not fixed to {parent}")
+            origin = element.find("origin")
+            if origin is None:
+                origin = ET.SubElement(element, "origin")
+            origin.set("xyz", position)
+            origin.set("rpy", "0 0 0")
+            return ET.tostring(root, encoding="unicode")
+    if root.find(f"link[@name='{name}']") is not None:
+        raise ValueError(f"{name} is already a link of the description, not fixed to {parent}")
+    ET.SubElement(root, "link", name=name)
+    joint = ET.SubElement(root, "joint", name=f"{name}_joint", type="fixed")
+    ET.SubElement(joint, "parent", link=parent)
+    ET.SubElement(joint, "child", link=name)
+    ET.SubElement(joint, "origin", xyz=position, rpy="0 0 0")
+    return ET.tostring(root, encoding="unicode")

@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Fold joint zero offsets (`calibrate_zeros`'s joint_zeros.yaml) into a URDF.
+"""Fold a calibration (`calibrate_arm`'s joint_zeros.yaml and tcp.yaml) into a URDF.
 
-apply_zeros --urdf arm.urdf --zeros joint_zeros.yaml --out arm_calibrated.urdf
+apply_calibration --urdf arm.urdf --zeros joint_zeros.yaml --tcp tcp.yaml --out arm_calibrated.urdf
 """
 
 from __future__ import annotations
@@ -24,17 +24,26 @@ import pathlib
 
 import yaml
 
-from arm_calibration.urdf_chain import apply_zeros
+from arm_calibration.urdf_chain import add_tcp, apply_zeros
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--urdf", type=pathlib.Path, required=True)
-    parser.add_argument("--zeros", type=pathlib.Path, required=True)
+    parser.add_argument("--zeros", type=pathlib.Path, help="joint_zeros.yaml")
+    parser.add_argument("--tcp", type=pathlib.Path, help="tcp.yaml")
     parser.add_argument("--out", type=pathlib.Path, required=True)
     args = parser.parse_args(argv)
-    zeros = yaml.safe_load(args.zeros.read_text())["joint_zeros_rad"]
-    args.out.write_text(apply_zeros(args.urdf.read_text(), {j: float(v) for j, v in zeros.items()}))
+    if not args.zeros and not args.tcp:
+        parser.error("give --zeros, --tcp or both")
+    urdf = args.urdf.read_text()
+    if args.zeros:
+        zeros = yaml.safe_load(args.zeros.read_text())["joint_zeros_rad"]
+        urdf = apply_zeros(urdf, {j: float(v) for j, v in zeros.items()})
+    if args.tcp:
+        tcp = yaml.safe_load(args.tcp.read_text())
+        urdf = add_tcp(urdf, tcp["parent"], tcp["link"], tcp["xyz_m"])
+    args.out.write_text(urdf)
     print(f"wrote {args.out}")
 
 

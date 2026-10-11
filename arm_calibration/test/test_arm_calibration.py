@@ -21,10 +21,10 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 import yaml
-from arm_calibration.urdf_chain import Chain, apply_zeros, matrix_to_rpy, rpy_to_matrix
+from arm_calibration.urdf_chain import Chain, add_tcp, apply_zeros, matrix_to_rpy, rpy_to_matrix
 from scipy.optimize import least_squares
 
-from arm_calibration import calibrate_zeros, profiles
+from arm_calibration import apply_calibration, calibrate_arm, profiles
 from arm_calibration import fit as zero_fit
 
 SHAPES = ("down", "towards", "away", "left", "right")
@@ -194,7 +194,7 @@ def test_a_tip_beyond_its_frame_is_given_by_the_profile():
 def test_a_dot_touched_once_is_refused():
     chain = Chain(FIVE, "base", "tip")
     touches = [zero_fit.Touch(0, {}), zero_fit.Touch(1, {}), zero_fit.Touch(1, {"elbow": 0.1})]
-    with pytest.raises(ValueError, match="dot 0 has one touch"):
+    with pytest.raises(ValueError, match="reference 0 has one touch"):
         zero_fit.fit(chain, touches, ["lift"])
 
 
@@ -228,7 +228,7 @@ def test_an_arm_is_added_by_a_profile_and_refitted_from_its_touches(tmp_path):
         )
     )
 
-    calibrate_zeros.main(["--profile", profile, "--refit", str(tmp_path / "touches.json"), "--out", str(tmp_path)])
+    calibrate_arm.main(["--profile", profile, "--refit", str(tmp_path / "touches.json"), "--out", str(tmp_path)])
 
     written = yaml.safe_load((tmp_path / "joint_zeros.yaml").read_text())
     assert written["profile"] == "test_arm"
@@ -273,3 +273,102 @@ def test_so101_zeros_on_its_own_description():
     result = zero_fit.fit(chain, touches, profile.free_joints, profile.plane_normal)
     for joint_name, value in true_zeros.items():
         assert result.zeros[joint_name] == pytest.approx(value, abs=math.radians(0.3))
+
+
+# A tool on the arm: its point 35 mm out along the tool and a few millimetres off its axis.
+TOOL = np.array([0.004, -0.003, 0.035])
+# A sharp pin fixed above the table, within reach.
+PIN = np.array([[0.24, 0.02, 0.05]])
+
+
+@pytest.mark.parametrize("arm", list(ARMS))
+def test_a_pin_finds_the_tool_centre_point_of_an_arm_with_true_zeros(arm):
+    urdf, joints, _free = ARMS[arm]
+    chain = Chain(urdf, "base", "tip")
+    for seed in range(3):
+        touches = hand(chain, joints, {}, TOOL, np.random.default_rng(seed), dots=PIN, noise=0.0002)
+        result = zero_fit.fit(chain, touches, [], reference="pin", tip_free=True)
+        error = result.tip_offset - TOOL
+        assert np.all(np.abs(error) < 3 * result.tip_sigma + 1e-4)
+        assert np.linalg.norm(error) < 0.0015
+        np.testing.assert_allclose(result.dots[0], PIN[0], atol=0.002)
+
+
+def test_dots_find_the_tool_centre_point_and_the_zeros_together():
+    urdf, joints, free = ARMS["six"]
+    chain = Chain(urdf, "base", "tip")
+    true_zeros = {"j2": 0.03, "j3": -0.04, "j4": 0.02, "j5": -0.03}
+    touches = hand(chain, joints, true_zeros, TOOL, np.random.default_rng(7))
+    result = zero_fit.fit(chain, touches, free, tip_free=True)
+    assert np.linalg.norm(result.tip_offset - TOOL) < 0.0015
+    for joint_name, value in true_zeros.items():
+        error, sigma = abs(math.degrees(result.zeros[joint_name] - value)), math.degrees(result.sigma[joint_name])
+        assert error < 3 * sigma
+
+
+def test_a_pin_cannot_find_zeros():
+    chain = Chain(FIVE, "base", "tip")
+    touches = [zero_fit.Touch(0, {}), zero_fit.Touch(0, {"elbow": 0.1})]
+    with pytest.raises(ValueError, match="joint zeros need dots"):
+        zero_fit.fit(chain, touches, ["lift"], reference="pin")
+
+
+def test_the_tool_centre_point_is_a_link_fixed_to_the_tip():
+    with_tcp = add_tcp(FIVE, "tip", "tcp_link", TOOL)
+    q = dict.fromkeys(ARMS["five"][1], 0.3)
+    tip, tcp = Chain(with_tcp, "base", "tip").forward(q), Chain(with_tcp, "base", "tcp_link").forward(q)
+    np.testing.assert_allclose(tcp[:3, 3], tip[:3, :3] @ TOOL + tip[:3, 3], atol=1e-9)
+    np.testing.assert_allclose(tcp[:3, :3], tip[:3, :3], atol=1e-9)
+    moved = add_tcp(with_tcp, "tip", "tcp_link", [0.0, 0.0, 0.05])
+    assert moved.count('name="tcp_link"') == 1
+    np.testing.assert_allclose(Chain(moved, "tip", "tcp_link").forward({})[:3, 3], [0.0, 0.0, 0.05])
+    with pytest.raises(ValueError, match="not fixed to l3"):
+        add_tcp(moved, "l3", "tcp_link", TOOL)
+
+
+def test_the_tool_refuses_zeros_from_a_pin_and_from_too_few_dots():
+    with pytest.raises(SystemExit, match="joint zeros need dots"):
+        calibrate_arm.check("zeros", "pin", 1)
+    with pytest.raises(SystemExit, match="three dots or more"):
+        calibrate_arm.check("zeros+tcp", "dots", 2)
+    calibrate_arm.check("tcp", "pin", 1)
+
+
+def test_a_tool_centre_point_is_refitted_and_applied(tmp_path):
+    urdf, joints, _free = ARMS["six"]
+    profile = write_profile(tmp_path, joints, [])
+    (tmp_path / "description.urdf").write_text(urdf)
+    chain = Chain(urdf, "base", "tip")
+    touches = hand(chain, joints, {}, TOOL, np.random.default_rng(3), dots=PIN, noise=0.0002)
+    (tmp_path / "touches.json").write_text(
+        json.dumps(
+            {
+                "profile": "test_arm",
+                "reference": "pin",
+                "solve": "tcp",
+                "read": {},
+                "touches": [{"dot": t.dot, "shape": "down", "positions": t.positions} for t in touches],
+            }
+        )
+    )
+
+    calibrate_arm.main(["--profile", profile, "--refit", str(tmp_path / "touches.json"), "--out", str(tmp_path)])
+
+    tcp = yaml.safe_load((tmp_path / "tcp.yaml").read_text())
+    assert (tcp["parent"], tcp["link"], tcp["reference"]) == ("tip", "tcp_link", "pin")
+    np.testing.assert_allclose(tcp["xyz_m"], TOOL, atol=0.0015)
+    assert not (tmp_path / "joint_zeros.yaml").exists()
+    calibrated = (tmp_path / "test_arm_calibrated.urdf").read_text()
+    np.testing.assert_allclose(Chain(calibrated, "tip", "tcp_link").forward({})[:3, 3], tcp["xyz_m"], atol=1e-6)
+
+    apply_calibration.main(
+        [
+            "--urdf",
+            str(tmp_path / "description.urdf"),
+            "--tcp",
+            str(tmp_path / "tcp.yaml"),
+            "--out",
+            str(tmp_path / "applied.urdf"),
+        ]
+    )
+    assert (tmp_path / "applied.urdf").read_text() == calibrated

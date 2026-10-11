@@ -36,8 +36,8 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
-            "calibrate_zeros = arm_calibration.calibrate_zeros:main",
-            "apply_zeros = arm_calibration.apply_zeros:main",
+            "calibrate_arm = arm_calibration.calibrate_arm:main",
+            "apply_calibration = arm_calibration.apply_calibration:main",
         ],
     },
 )
