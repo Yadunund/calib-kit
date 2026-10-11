@@ -1,0 +1,18 @@
+# The SO-ARM101 (https://github.com/TheRobotStudio/SO-ARM100), as so_arm101_description describes it
+# (https://github.com/ros-physical-ai/ros2_so_arm).
+name: so101
+description: SO-ARM101, Feetech STS3215 servos homed with LeRobot's calibration
+base_link: base_link
+tip_link: gripper_frame_link
+tip: the closed jaw tips
+# The closed tips are 6.3 mm beyond gripper_frame_link, along the tool.
+tip_offset: [0, 0, 0.0063]
+# The tip frame's axis that points out of the tool, to say how a touch leans.
+tool_axis: [0, 0, 1]
+free_joints: [shoulder_lift_joint, elbow_flex_joint, wrist_flex_joint]
+held_joints:
+  shoulder_pan_joint: its axis is the table's normal through the base, so turning it turns every dot with it
+  wrist_roll_joint: its axis passes almost through the closed tips, so turning it barely moves them
+plane_normal: [0, 0, 1]
+dots: 3
+tilt_deg: 40

@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arm_calibration</name>
+  <version>0.1.0</version>
+  <description>
+    Joint zero calibration for robot arms: each joint's offset from its description, measured
+    by touching dots on the table, folded into the URDF. Any arm with a ros2_control stack;
+    an arm is a profile of data.
+  </description>
+  <maintainer email="yadunund@gmail.com">Yadunund Vijay</maintainer>
+  <license>Apache License 2.0</license>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- Recording from a ros2_control arm (README.md, "Contract"). -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <!-- The contract's test: a controller manager on mock hardware. -->
+  <test_depend>controller_manager</test_depend>
+  <test_depend>hardware_interface</test_depend>
+  <test_depend>joint_state_broadcaster</test_depend>
+  <test_depend>joint_trajectory_controller</test_depend>
+  <test_depend>robot_state_publisher</test_depend>
+  <test_depend>rmw_cyclonedds_cpp</test_depend>
+  <!-- The SO-ARM101 test, which skips without it. -->
+  <test_depend>xacro</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
