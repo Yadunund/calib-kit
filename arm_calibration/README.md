@@ -2,19 +2,24 @@
 
 Calibrates a robot arm against its URDF, with the arm itself and a fixed reference point:
 
-- **Joint zeros:** how far each joint's reading is from the angle the description means. An
-  actuator's zero is often set by eye (LeRobot's calibration sets it where a person judges the
-  middle of each joint's travel to be), and a joint then reads a degree or a few off; at 30 cm of
-  reach, a degree at the shoulder moves the tip about 5 mm.
+- **Joint zeros:** how far each joint's reading is from the angle the description means. A zero
+  set by eye (LeRobot's calibration sets it where a person judges the middle of each joint's
+  travel to be), or lost on any arm when a motor, encoder or encoder battery is changed or after a
+  collision, leaves a joint reading off; at 30 cm of reach, a degree at the shoulder moves the tip
+  about 5 mm.
 - **Tool centre point (TCP):** where a tool's working point is on the arm. A tool mounted on the
   flange puts its point somewhere the description does not know; the TCP is added to the URDF as
   a link, so planning and servoing can work in the tool's own point.
 
-| Arm | Calibrate | Reference | How the arm moves |
-|---|---|---|---|
-| Zeros set by eye (hobby and research arms) | `zeros` | pen dots on the table | released, guided by hand |
-| Zeros set by eye, new tool | `zeros+tcp` | pen dots on the table | released, guided by hand |
-| Factory-calibrated (industrial arms), new tool | `tcp` | a sharp pin | jogged under its own control |
+| The arm | Calibrate | Reference |
+|---|---|---|
+| Its zeros are off: set by eye, or lost after a repair | `zeros` | dots on the table |
+| Its zeros are off, and a tool is fitted | `zeros+tcp` | dots on the table |
+| Its zeros are right, and a tool is fitted | `tcp` | a sharp pin (or dots) |
+
+Any arm can be moved however it moves: released through ros2_control and guided by hand
+(`--release lifecycle`), or guided in its own freedrive or jogged from a pendant or teleoperation
+(`--release none`). A low-cost arm is typically released and guided; an industrial one jogged.
 
 ## How it works
 

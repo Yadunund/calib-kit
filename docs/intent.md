@@ -2,17 +2,18 @@
 
 ## Problem
 
-Robots ship slightly wrong. Encoders are zeroed by eye, parts are printed or machined a little off,
-tools are mounted where no drawing says, and sensors sit a few millimetres from their nominal
-mounts. The description a ROS 2 stack plans, transforms and simulates with is an idealised drawing
+Robots drift from their descriptions. Encoders are zeroed by eye, or lose their zero to a repair
+or a collision; parts are printed or machined a little off; tools are mounted where no drawing
+says; and sensors sit a few millimetres from their nominal mounts. The description a ROS 2 stack plans, transforms and simulates with is an idealised drawing
 of the robot, so every pose the stack computes inherits the gap. Closing it today means a
 vendor's tool for one robot, a fiducial rig, or hand-editing a URDF.
 
 ## Users
 
-People running robots with ROS 2: researchers and hobbyists with low-cost arms whose zeros are set
-by eye, and integrators fitting tools to factory-calibrated industrial arms. They have the robot,
-its ros2_control stack and its description, and little else: no measuring arm, no calibration rig.
+People running robots with ROS 2, from low-cost research and hobby arms to industrial ones: anyone
+whose robot has drifted from its description, or has had a tool fitted. They have the robot, its
+ros2_control stack and its description, and need nothing else: no measuring arm, no calibration
+rig.
 
 ## Outcomes
 

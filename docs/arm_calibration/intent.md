@@ -5,26 +5,30 @@
 A robot arm's description and the arm disagree in two ways that every pose the stack computes
 inherits:
 
-- **Joint zeros.** An actuator's zero is often set by eye (LeRobot's calibration homes each servo
-  where a person judges the middle of its travel to be), so a joint reads a degree or a few off
-  the angle the description means. At 30 cm of reach, a degree at the shoulder moves the tip about
-  5 mm.
+- **Joint zeros.** A joint reads off the angle the description means when its zero was never set
+  precisely (LeRobot's calibration homes each servo where a person judges the middle of its travel
+  to be), or when it was lost: a motor or encoder replaced, an encoder battery run flat, a
+  collision. At 30 cm of reach, a degree at the shoulder moves the tip about 5 mm; at an
+  industrial arm's metre, nearly 20 mm.
 - **The tool centre point (TCP).** A tool mounted on the flange puts its working point somewhere
   the description does not know, so planning and servoing in the tool's point are off by however
   far the mount and the drawing differ.
 
 ## Users
 
-- People with low-cost arms whose zeros are set by eye (the SO-ARM101 and its kind), driven by
-  ros2_control, who want the arm to go where the description says.
-- Integrators fitting a tool to a factory-calibrated industrial arm, who need its TCP, measured
-  the way the industry does: jogging the tool onto a sharp pin in several orientations.
+Anyone running an arm with ros2_control, from a low-cost arm to an industrial one, who needs it
+to go where its description says:
+
+- whose arm's zeros are off: set by eye on a low-cost arm, or lost on any arm after a repair;
+- who has mounted a tool and needs its TCP, measured the way the industry does: jogging the tool
+  onto a sharp pin in several orientations.
 
 ## Outcomes
 
-- With a pen and a table, a user measures an arm's joint zeros in minutes, guiding the released
-  arm by hand.
-- With a sharp pin, a user measures a tool's TCP, jogging the arm under its own control.
+- With dots on a table, a user measures an arm's joint zeros in minutes, however the arm is moved:
+  released and guided by hand, guided in its own freedrive, or jogged.
+- With a sharp pin, a user measures a tool's TCP, jogging the arm under its own control or
+  guiding it.
 - The arm's description comes out corrected: joint origins turned by their zeros, and the TCP as
   a link, so the rest of the stack uses them with no change.
 - Every value comes with its uncertainty; what the touches cannot determine is held and named.
@@ -38,8 +42,9 @@ inherits:
   measurable without measuring anything.
 - **Refuse what cannot be measured.** Zeros from a single pin, or from too few dots, are refused
   rather than returned.
-- **Move the arm the way its users do.** Hobby arms are guided by hand, released through
-  ros2_control; industrial arms are jogged under their own control and never released.
+- **Move the arm however it moves.** The measurement is the same whether the arm is released
+  through ros2_control and guided by hand, guided in its own freedrive, or jogged under its own
+  control from a pendant or teleoperation; the calibration releases nothing it does not have to.
 
 ## Non-goals
 

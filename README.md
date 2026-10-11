@@ -14,9 +14,11 @@
 
 ---
 
-Most robots ship slightly wrong. Encoders are zeroed by eye, parts are printed a little off, and
-the description the whole stack plans with is an idealised drawing of the robot rather than the
-robot itself. calib-kit closes that gap, one calibration at a time.
+Robots drift from their descriptions. Encoders are zeroed by eye or lose their zero to a repair,
+parts are made a little off, tools are mounted where no drawing says, and the description the
+whole stack plans with is an idealised drawing of the robot rather than the robot itself. This
+holds for a low-cost arm and an industrial one alike. calib-kit closes that gap, one calibration
+at a time.
 
 - **The robot is the instrument.** Calibrations use the robot's own sensors and as little else as
   possible: no fiducials, no measuring jigs, often just a pen.
@@ -35,12 +37,13 @@ robot itself. calib-kit closes that gap, one calibration at a time.
 
 ## `arm_calibration` at a glance
 
-Encoders zeroed by eye leave each joint a degree or a few off the angle the URDF means; at a 30 cm
-reach, one degree at the shoulder moves the tip about 5 mm. And a tool mounted on an arm puts its
+Encoders zeroed by eye, or after a motor, encoder or battery change, leave each joint off the
+angle the URDF means; at a 30 cm reach, one degree at the shoulder moves the tip about 5 mm, and at
+an industrial arm's metre nearly 20 mm. And a tool mounted on an arm puts its
 point somewhere the URDF does not know. `arm_calibration` measures both by bringing the arm's tip
 onto a fixed reference in several orientations, and folds them into the URDF:
 
-- **Joint zeros** from pen dots on the table, the arm guided by hand.
+- **Joint zeros** from dots on the table, the arm guided by hand or jogged.
 - **The tool centre point** from a sharp pin, the arm jogged under its own control (the industrial
   way), or from the same pen dots.
 
