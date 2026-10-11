@@ -1,0 +1,34 @@
+[workspace]
+name = "calib-kit"
+description = "A toolkit for robot calibration"
+authors = ["Yadunund Vijay <yadunund@gmail.com>"]
+license = "Apache-2.0"
+channels = ["conda-forge", "https://prefix.dev/robostack-lyrical"]
+platforms = ["linux-64", "linux-aarch64"]
+
+[dependencies]
+python = "3.14.*"
+numpy = ">=2,<3"
+scipy = "*"
+pyyaml = "*"
+setuptools = ">=71,<80"
+colcon-common-extensions = "*"
+pytest = "*"
+ruff = "*"
+# arm_calibration's ROS interfaces (arm_calibration/README.md, "Contract").
+ros-lyrical-ros-core = "*"
+ros-lyrical-controller-manager-msgs = "*"
+ros-lyrical-lifecycle-msgs = "*"
+# The contract's test: a controller manager on mock hardware, on a DDS that needs no router.
+ros-lyrical-controller-manager = "*"
+ros-lyrical-hardware-interface = "*"
+ros-lyrical-joint-state-broadcaster = "*"
+ros-lyrical-joint-trajectory-controller = "*"
+ros-lyrical-robot-state-publisher = "*"
+ros-lyrical-rmw-cyclonedds-cpp = "*"
+ros-lyrical-xacro = "*"
+
+[tasks]
+lint = "ruff check . && ruff format --check ."
+build = "colcon build --symlink-install"
+test = { cmd = "bash -c 'source install/setup.bash && exec pytest -q'", depends-on = ["build"] }
