@@ -12,35 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Calibrate an arm against its description: its joint zeros, its tool centre point, or both.
+"""Calibrate an arm against its URDF: its joint zeros, its tool centre point (TCP), or both.
 
-An actuator's zero is often set by eye (LeRobot's calibration sets it where a person judges the
-middle of each joint's travel to be), so a joint reads a degree or a few off the angle its
-description means; and a tool mounted on an arm puts its point somewhere the description does not
-know. Both are found by bringing the arm's tip onto fixed reference points in several arm shapes
-(`fit`), and written as YAML files and as a corrected description.
+You bring the arm's tip onto a fixed reference several times, holding the tool a different way each
+time, and press Enter for each touch. Every touch of one reference puts the tip on the same point,
+so the zeros and the TCP are the values that make the URDF agree with itself about that point.
 
-The references are either:
+References:
 
-- dots: pen dots on the table the arm is clamped flat to, spread over its reach (near the base, far
-  out in front, to either side). The arm is released and its tip rested in each dot by hand.
-  Dots find joint zeros, the tool centre point, or both.
-- pin: a sharp point fixed within reach. The arm is jogged under its own control (a teach
-  pendant, teleoperation, servoing) until the tool's point meets the pin's, then reoriented and
-  jogged onto it again. A pin finds the tool centre point.
+- dots: small pen dots on the table the arm stands on. The arm is released and you guide it by
+  hand. Dots find joint zeros, the TCP, or both.
+- pin: a sharp point fixed within reach. You move the arm with its own controls (a pendant,
+  teleoperation) until the tool's point meets the pin. A pin finds the TCP only.
 
-For each reference, the profile's shapes: the tool straight down, then leaning towards the base,
-away from it, and, where the wrist can, to either side; turning the tool about its own axis
-between touches helps too. Hold still and press Enter for each. The fit prints each value with its uncertainty and how far the tip was
-from its references, and writes joint_zeros.yaml, tcp.yaml and the corrected URDF.
+    calibrate_arm --out ~/arm_cal                                                    # zeros, from dots
+    calibrate_arm --profile my_arm.yaml --solve tcp --reference pin --out ~/arm_cal  # a tool's TCP
+    calibrate_arm --refit ~/arm_cal/touches.json --out ~/arm_cal                    # fit again, no robot
 
-    calibrate_arm --solve zeros --reference dots --out ~/arm_cal                    # zeros by eye
-    calibrate_arm --profile my_arm.yaml --solve tcp --reference pin --out ~/arm_cal  # a new tool
-    calibrate_arm --refit ~/arm_cal/touches.json --out ~/arm_cal                    # no robot needed
-
-What the robot must offer is the contract in README.md: the description and joint states on
-topics, and, to release the arm, a controller manager that takes its ros2_control hardware
-inactive.
+What the robot must provide is in README.md.
 """
 
 from __future__ import annotations
@@ -49,6 +38,7 @@ import argparse
 import json
 import math
 import pathlib
+import select
 import sys
 import time
 
@@ -57,6 +47,7 @@ import yaml
 
 from arm_calibration import fit as arm_fit
 from arm_calibration import profiles
+from arm_calibration import reach as arm_reach
 from arm_calibration.urdf_chain import Chain, add_tcp, apply_zeros
 
 # A touch further than this from the fit's reference, metres, is named for redoing.
@@ -67,42 +58,228 @@ POOR_SIGMA_DEG = 0.5
 POOR_TIP_SIGMA_M = 0.0005
 # How the arm is moved onto each kind of reference, unless --release says otherwise.
 RELEASE = {"dots": "lifecycle", "pin": "none"}
+# Dots at least this far apart, metres.
+DOT_SPACING_M = 0.05
+# A dot's touches whose tips, by the URDF, are further than this from its first touch's, metres, are
+# named: the tip was likely not in the dot.
+SPREAD_M = 0.02
+WAY_WORDS = {
+    "towards": "towards the base",
+    "away": "away from the base",
+    "left": "to the left",
+    "right": "to the right",
+}
 
 
-def shape_words(shape: str, tilt_deg: float) -> str:
-    direction, tilt = profiles.parse_shape(shape, tilt_deg)
-    if direction == "down":
-        return "the tool straight down"
-    way = {
-        "towards": "towards the arm's base",
-        "away": "away from the base",
-        "left": "to the left",
-        "right": "to the right",
-    }[direction]
-    return f"the tool leaning about {tilt:.0f} degrees {way}"
+def ask(prompt: str, status=None) -> str:
+    """The person's answer to `prompt`, trimmed and lowercased. On a terminal, `status()` is shown
+    on the line below and redrawn while it changes, until they press Enter."""
+    if status is None or not sys.stdin.isatty():
+        return input(prompt).strip().lower()
+    print(prompt)
+    shown = None
+    while True:
+        line = status()
+        if line != shown:
+            sys.stdout.write("\r\033[K  " + line)
+            sys.stdout.flush()
+            shown = line
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            return sys.stdin.readline().strip().lower()
 
 
-def lean(chain: Chain, positions: dict[str, float], tool_axis) -> str:
-    """How the tool leans, by the description: degrees from straight down, and which way."""
-    pose = chain.forward(positions)
-    pointing, tip = pose[:3, :3] @ np.asarray(tool_axis, float), pose[:3, 3]
-    tilt = math.degrees(math.acos(max(-1.0, min(1.0, -pointing[2]))))
-    if tilt < 10:
-        return f"{tilt:.0f} deg from straight down"
-    radial = tip[:2] / max(math.hypot(tip[0], tip[1]), 1e-9)
-    horizontal = pointing[:2] / max(float(np.linalg.norm(pointing[:2])), 1e-9)
-    along = float(horizontal @ radial)
-    across = float(horizontal[1] * radial[0] - horizontal[0] * radial[1])
-    way = (
-        "away from the base"
-        if along > 0.7
-        else "towards the base"
-        if along < -0.7
-        else "to the left"
-        if across > 0
-        else "to the right"
+def lean_of(chain: Chain, profile: profiles.Profile, positions: dict[str, float]) -> arm_reach.Lean:
+    return arm_reach.lean(chain, positions, profile.tip_offset, profile.tool_axis, profile.plane_normal)
+
+
+def lean_words(lean: arm_reach.Lean) -> str:
+    """How the tool leans, in words."""
+    if lean.way is None:
+        return f"pointing down ({lean.deg:.0f} deg from straight down)"
+    return f"leaning {lean.deg:.0f} deg, its top {WAY_WORDS[lean.way]}"
+
+
+def shape_words(shape: str, profile: profiles.Profile, reference: str) -> str:
+    """What to do for a touch in `shape`."""
+    on = "in the dot" if reference == "dots" else "on the pin's point"
+    if shape == "down":
+        return f"point the tool straight down with {profile.tip} {on}"
+    return (
+        f"keep {profile.tip} {on} and tilt the tool so its top moves {WAY_WORDS[shape]}, "
+        f"as far as it goes (at least {profile.min_lean_deg:.0f} deg)"
     )
-    return f"{tilt:.0f} deg {way}"
+
+
+def shape_problem(shape: str, lean: arm_reach.Lean, min_lean_deg: float) -> str | None:
+    """Why a touch leaning as `lean` is not in `shape`; None if it is."""
+    if shape == "down":
+        if lean.way is None:
+            return None
+        return f"it leans {lean.deg:.0f} deg: point it straight down (within {arm_reach.DOWN_DEG:.0f} deg)"
+    if lean.deg < min_lean_deg:
+        return f"it leans only {lean.deg:.0f} deg: tilt it at least {min_lean_deg:.0f} deg"
+    if lean.way != shape:
+        return f"its top moves {WAY_WORDS[lean.way]}: tilt it so its top moves {WAY_WORDS[shape]}"
+    return None
+
+
+def _planar(vector, plane_normal) -> float:
+    up = np.asarray(plane_normal, float) / np.linalg.norm(plane_normal)
+    v = np.asarray(vector, float)
+    return float(np.linalg.norm(v - (v @ up) * up))
+
+
+def spot_check(
+    chain: Chain, profile: profiles.Profile, positions: dict[str, float], marked: list[np.ndarray]
+) -> tuple[bool, str]:
+    """Whether the tip, where `positions` put it, is a good place for a dot, and why, in words."""
+    lean = lean_of(chain, profile, positions)
+    where = f"{_planar(lean.tip, profile.plane_normal) * 100:.0f} cm from the base"
+    if lean.way is not None:
+        return False, f"{where}; point the tool straight down (it leans {lean.deg:.0f} deg)"
+    for i, dot in enumerate(marked):
+        apart = _planar(lean.tip - dot, profile.plane_normal)
+        if apart < DOT_SPACING_M:
+            return False, (
+                f"{where}; only {apart * 100:.0f} cm from dot {i + 1}: "
+                f"move at least {DOT_SPACING_M * 100:.0f} cm from it"
+            )
+    start = [positions[j] for j in chain.movable]
+    leans = [s for s in profile.shapes if s != "down"]
+    reaches = {
+        s: arm_reach.reach(chain, start, lean.tip, s, profile.tip_offset, profile.tool_axis, profile.plane_normal)
+        for s in leans
+    }
+    if any(r is None for r in reaches.values()):
+        return False, f"{where}; the URDF cannot hold the tip here"
+    can = ", ".join(f"{WAY_WORDS[s]} up to {r:.0f} deg" for s, r in reaches.items())
+    if any(r < profile.min_lean_deg for r in reaches.values()):
+        return False, (
+            f"{where}; the tool can tilt {can}, but needs {profile.min_lean_deg:.0f} deg each way: "
+            "move nearer to or further from the base"
+        )
+    return True, f"{where}; the tool can tilt {can}"
+
+
+def suggest_dots(chain: Chain, profile: profiles.Profile, count: int):
+    """Say how far from the base the dots can go, and where to put each."""
+    leans = [s for s in profile.shapes if s != "down"]
+    print("\nWorking out where the dots can go...")
+    span = arm_reach.spread(
+        chain, leans, profile.min_lean_deg, profile.tip_offset, profile.tool_axis, profile.plane_normal
+    )
+    if span is None:
+        print(
+            f"  The URDF's joint limits leave no distance from the base where the tool can tilt "
+            f"{profile.min_lean_deg:.0f} deg every way asked. Each spot is checked as you go."
+        )
+        return
+    near, far = span
+    places = [near + (far - near) * i / max(count - 1, 1) for i in range(count)]
+    print(
+        f"  Dots can go {near * 100:.0f} to {far * 100:.0f} cm from the centre of the base. Spread them out:\n"
+        + "\n".join(f"    dot {i + 1}: about {p * 100:.0f} cm from the base" for i, p in enumerate(places))
+        + f"\n  and some to each side, at least {DOT_SPACING_M * 100:.0f} cm apart."
+    )
+
+
+def find_spot(args, profile, arm, chain, point: int, marked: list[np.ndarray]) -> np.ndarray | None:
+    """Where the person chooses to put dot `point`, checked before they mark it; None if they finish."""
+    joints = chain.movable
+
+    def status() -> str:
+        good, words = spot_check(chain, profile, arm.positions(joints), marked)
+        return f"{'GOOD SPOT' if good else 'not yet'}: {words}"
+
+    while True:
+        answer = ask(
+            f"\nDot {point + 1} of {args.count}: rest {profile.tip} on the table where this dot will go, "
+            "with the tool pointing straight down. Do not mark it yet.\n"
+            "  Press Enter when the line below says the spot is good (q: finish). ",
+            status=status,
+        )
+        if answer == "q":
+            return None
+        positions = arm.still_positions(joints)
+        if positions is None:
+            print("  The arm moved. Hold it still and press Enter again.")
+            continue
+        good, words = spot_check(chain, profile, positions, marked)
+        if not good:
+            print(f"  Not here: {words}.")
+            continue
+        print(
+            f"  Spot accepted: {words}.\n"
+            f"  Lift the tool a little, mark a small dot (about 1 mm) where {profile.tip} were, and put "
+            "them back in it."
+        )
+        return lean_of(chain, profile, positions).tip
+
+
+def keep(out: pathlib.Path, args, profile: profiles.Profile, about: dict, saved: list[dict]):
+    (out / "touches.json").write_text(
+        json.dumps(
+            {
+                "profile": profile.name,
+                "reference": args.reference,
+                "solve": args.solve,
+                "read": about,
+                "touches": saved,
+            },
+            indent=1,
+        )
+    )
+
+
+def touch(args, profile, arm, chain, out, about, saved: list[dict], point: int, label: str) -> bool:
+    """The person's touches of reference `point`, one per shape, added to `saved`. True if they
+    chose to finish."""
+    joints = chain.movable
+    shapes = profile.shapes
+    taken: list[int] = []  # the shape of each of this reference's touches, by its index
+    shape = 0
+    while shape < len(shapes):
+        want = shapes[shape]
+        answer = ask(
+            f"\n{label}, touch {shape + 1} of {len(shapes)}: {shape_words(want, profile, args.reference)}.\n"
+            "  Hold still and press Enter to record (r: redo the last touch, s: skip this one, q: finish). ",
+            status=lambda: lean_words(lean_of(chain, profile, arm.positions(joints))),
+        )
+        if answer == "q":
+            return True
+        if answer == "s":
+            shape += 1
+            continue
+        if answer == "r":
+            if taken:
+                saved.pop()
+                shape = taken.pop()
+                keep(out, args, profile, about, saved)
+                print("  Removed the last touch.")
+            else:
+                print(f"  No touch of this {'dot' if args.reference == 'dots' else 'pin'} to redo.")
+            continue
+        positions = arm.still_positions(joints)
+        if positions is None:
+            print("  The arm moved. Hold it still and press Enter again.")
+            continue
+        lean = lean_of(chain, profile, positions)
+        problem = shape_problem(want, lean, profile.min_lean_deg)
+        if problem:
+            print(f"  Not recorded: {problem}.")
+            continue
+        saved.append({"dot": point, "shape": want, "positions": positions})
+        taken.append(shape)
+        keep(out, args, profile, about, saved)
+        print(f"  Recorded: {lean_words(lean)}.")
+        shape += 1
+    return False
+
+
+def spread_of(chain: Chain, profile: profiles.Profile, touches: list[dict]) -> float:
+    """How far, metres, the URDF puts the furthest of `touches`' tips from the first's."""
+    tips = [lean_of(chain, profile, t["positions"]).tip for t in touches]
+    return max((float(np.linalg.norm(t - tips[0])) for t in tips), default=0.0)
 
 
 def check(solve: str, reference: str, count: int):
@@ -118,61 +295,72 @@ def record(args, profile: profiles.Profile, arm, chain: Chain, out: pathlib.Path
     joints = chain.movable
     arm.positions(joints)
     about = {"joint_states": arm.topics[0], "controller_manager": arm.topics[2]}
+    dots = args.reference == "dots"
     if args.release == "lifecycle":
         hardware = arm.hardware_for(joints, args.ros2_control)
         about["ros2_control"] = hardware.name
         input(
-            f"Hold the arm: {hardware.name} goes inactive, its torque off, and the arm will fall. "
-            "Press Enter when holding it. "
+            f"\nHold the arm now. When you press Enter, {hardware.name} switches its motors off and the arm "
+            "will drop if you let go. "
         )
         controllers = arm.release(hardware)
-        print(f"  released {hardware.name}" + (f" (deactivated {', '.join(controllers)})" if controllers else ""))
+        print(f"  Released {hardware.name}" + (f" (stopped {', '.join(controllers)})." if controllers else "."))
         if not arm.updating():
             raise SystemExit(
-                f"{arm.topics[0]} stopped updating with {hardware.name} inactive: the contract needs "
-                "its state interfaces read while inactive. Restored; release it by other means and "
+                f"{arm.topics[0]} stopped updating with {hardware.name} inactive, and the calibration needs "
+                "to read the joints while the arm is free. The arm is restored. Free it some other way and "
                 "run with --release none."
             )
+        if ask("  Does the arm now move freely by hand? (y/n) ") not in ("y", "yes"):
+            raise SystemExit(
+                f"{hardware.name} is inactive but its motors kept their torque: its driver must switch them "
+                "off when the hardware is deactivated (README.md, What the robot must provide). The arm is "
+                "restored."
+            )
     else:
-        print("  the arm stays under its own control: jog it onto each reference")
-    print("\n\n".join(__doc__.split("\n\n")[2:4]).replace("its tip", profile.tip))
-    saved = []
-    name = "Dot" if args.reference == "dots" else "Pin"
-    for point in range(args.count):
-        shape = 0
-        while shape < len(profile.shapes):
-            answer = (
-                input(
-                    f"\n{name} {point + 1}, {shape_words(profile.shapes[shape], profile.tilt_deg)}. "
-                    "Enter to record, s to skip, q to finish: "
-                )
-                .strip()
-                .lower()
-            )
-            if answer == "q":
+        print("\nThe arm stays under its own control: move it onto each reference with its own controls.")
+    ways = ", ".join(["straight down" if s == "down" else f"tilted {WAY_WORDS[s]}" for s in profile.shapes])
+    if dots:
+        print(
+            f"\nYou will mark {args.count} dots on the table and touch each with {profile.tip}, holding the "
+            f"tool {len(profile.shapes)} ways: {ways}. 'Top' is the end of the tool away from the tip; left "
+            "and right are as seen from the base, looking out at the dot. For each touch, hold still and "
+            "press Enter."
+        )
+        suggest_dots(chain, profile, args.count)
+    else:
+        print(
+            f"\nTouch the pin's point with {profile.tip}, holding the tool {len(profile.shapes)} ways: {ways}. "
+            "Turn the tool a little about its own axis between touches. For each touch, hold still and "
+            "press Enter."
+        )
+    saved: list[dict] = []
+    marked: list[np.ndarray] = []
+    point = 0
+    while point < args.count:
+        if dots:
+            spot = find_spot(args, profile, arm, chain, point, marked)
+            if spot is None:
                 return saved, about
-            if answer == "s":
-                shape += 1
-                continue
-            positions = arm.still_positions(joints)
-            if positions is None:
-                print("  the arm moved while recording: hold it still and press Enter again")
-                continue
-            saved.append({"dot": point, "shape": profile.shapes[shape], "positions": positions})
-            (out / "touches.json").write_text(
-                json.dumps(
-                    {
-                        "profile": profile.name,
-                        "reference": args.reference,
-                        "solve": args.solve,
-                        "read": about,
-                        "touches": saved,
-                    },
-                    indent=1,
-                )
+            marked.append(spot)
+        while True:
+            first = len(saved)
+            label = f"Dot {point + 1} of {args.count}" if dots else f"Pin {point + 1} of {args.count}"
+            if touch(args, profile, arm, chain, out, about, saved, point, label):
+                return saved, about
+            apart = spread_of(chain, profile, saved[first:])
+            if not dots or apart <= SPREAD_M:
+                break
+            again = ask(
+                f"  These touches put {profile.tip} up to {apart * 1000:.0f} mm apart, by the URDF; more than "
+                f"{SPREAD_M * 1000:.0f} mm usually means they were not in the dot every time. Touch this dot "
+                "again? (y/n) "
             )
-            print(f"  recorded: {lean(chain, positions, profile.tool_axis)}")
-            shape += 1
+            if again not in ("y", "yes"):
+                break
+            del saved[first:]
+            keep(out, args, profile, about, saved)
+        point += 1
     return saved, about
 
 

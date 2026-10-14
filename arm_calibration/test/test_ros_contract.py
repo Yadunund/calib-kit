@@ -189,7 +189,7 @@ def test_the_tool_restores_the_arm_however_it_ends(stack, tmp_path, monkeypatch)
 
     arm, _ = stack
     (tmp_path / "arm.yaml").write_text("name: mock\nbase_link: base\ntip_link: tip\nfree_joints: [lift]\n")
-    answers = iter(["", "q"])  # hold the arm; then quit before any touch
+    answers = iter(["", "y", "q"])  # hold the arm; it moves freely; then quit before any dot
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     with pytest.raises(SystemExit, match="no touches recorded"):
         calibrate_arm.main(["--profile", str(tmp_path / "arm.yaml"), "--out", str(tmp_path)])

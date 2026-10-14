@@ -18,7 +18,11 @@ files into any URDF. Moving the arm is the person's; the arm's drivers are ros2_
 | TCP | The tool centre point: the tip's position in `tip_link`, measured |
 | Reference | `dots` (pen dots on the table) or `pin` (a sharp fixed point) |
 | Touch | The joint readings with the tip on a reference |
-| Shape | How the tool is held for a touch: straight down, or leaning towards the base, away from it, left or right, by some degrees |
+| Down | Opposite the profile's `plane_normal`: into the table |
+| Lean | The angle between the tool's axis (from the tool's top to the tip) and down, degrees |
+| Way | Where the tool's top moves as it leans, seen along the line from the base to the tip: `towards` the base, `away` from it, `left` or `right`; the nearest of the four |
+| Shape | How the tool is held for a touch: `down`, or leaning one way (`towards`, `away`, `left`, `right`) |
+| Reach | How far the tool can lean one way with the tip held on a spot: the largest multiple of 5 degrees, up to 60, at which the chain, within the description's joint limits, holds the tip within 1 mm of the spot and the tool within 2 degrees of that lean |
 | Hardware | The ros2_control hardware component holding the chain's joints, named by its `<ros2_control>` block |
 
 ## Requirements
@@ -49,19 +53,36 @@ files into any URDF. Moving the arm is the person's; the arm's drivers are ros2_
   back to active and the controllers deactivated are activated again.
 - **ARM-REL-5** With `--release none`, nothing on the robot is changed: the arm is jogged under its
   own control or freed by other means. The default is `lifecycle` for dots and `none` for a pin.
+- **ARM-REL-6** After releasing, the person is asked whether the arm moves freely by hand; any
+  answer but yes restores the arm and stops the run, saying the hardware kept its torque while
+  inactive.
 
 ### Recording
 
 - **ARM-REC-1** For each reference (the profile's `dots` for dots, one pin by default; `--count`
-  sets it), the person is asked for each of the profile's `shapes` in turn, and may skip a shape or
-  finish early.
+  sets it), the person is asked for each of the profile's `shapes` in turn, and may skip a shape,
+  redo the last touch, or finish early.
 - **ARM-REC-2** A touch is the mean of 15 readings of every joint of the chain, 30 ms apart. If any
   joint moves more than 0.005 rad over them, the touch is not taken and the person is asked to
   hold still.
-- **ARM-REC-3** After each touch, the tool's lean is reported as the description has it: degrees
-  from straight down, and which way.
+- **ARM-REC-3** While the person poses the arm, on a terminal, the tool's lean and way are shown
+  as the description has them and updated as the arm moves; after each touch, they are reported.
 - **ARM-REC-4** The description is written to `description.urdf` before the first touch, and every
   touch to `touches.json` as it is taken, with the profile, reference, solve and what was read.
+- **ARM-REC-5** A touch is taken only in its shape: `down` with a lean of 10 degrees or less; any
+  other with a lean of at least the profile's `min_lean_deg` and that way. Otherwise the person is
+  told what to change.
+- **ARM-REC-6** Before the first dot, the tool states the nearest and farthest distances from the
+  base's origin, along its x axis on the plane through that origin with the profile's
+  `plane_normal`, checked every 20 mm, at which the reach of every lean the profile asks for is at
+  least `min_lean_deg`; and suggests a distance for each dot, evenly from the nearest to the
+  farthest.
+- **ARM-REC-7** Before each dot is marked, the person rests the tip on the table where it will go;
+  the spot is shown with its reach for each lean the profile asks for, and accepted only with the
+  tool down, every reach at least `min_lean_deg`, and at least 50 mm from every dot before it.
+- **ARM-REC-8** After a dot's shapes, if the description puts the tip of any of its touches more
+  than 20 mm from where it puts the tip of its first, the person is told and may touch the dot
+  again.
 
 ### Fit
 
@@ -79,12 +100,15 @@ files into any URDF. Moving the arm is the person's; the arm's drivers are ros2_
 - **ARM-FIT-6** Each fitted value's uncertainty is one standard deviation from the fit's normal
   matrix, the touches' noise taken as the larger of the fit's rms and 0.5 mm. With touches whose
   noise matches that, each fitted value's error is within three of its standard deviations.
-- **ARM-FIT-7** With the shapes an arm can take on each of its dots (five shapes on three dots for
-  an arm whose wrist leans every way, two leans each way on five dots for one whose wrist only
-  pitches), a tip settling 0.5 mm from each dot's centre and offsets of up to 3 degrees, every zero
-  with a standard deviation under 0.25 degrees is fitted to within 0.5 degrees, and a free TCP to
-  within 1.5 mm. With those shapes on one pin, the tool turned about its axis between touches and
-  the tip settling 0.2 mm from the pin's point, the TCP is fitted to within 1.5 mm.
+- **ARM-FIT-7** With three dots spread from near the base to far, each touched in the shapes its
+  arm can take there (down and every way for an arm whose wrist leans every way; down, towards
+  and away for one whose wrist only pitches), each lean as far as the joint limits allow up to 40
+  degrees and at least 15, a tip settling 0.5 mm from each dot's centre and offsets of up to 3
+  degrees, every zero with a standard deviation under 0.25 degrees is fitted to within 0.5
+  degrees, and a free TCP to within 1.5 mm. On one pin, its shapes touched once by an arm whose
+  wrist leans every way and twice by one whose wrist only pitches, the tool turned about its axis
+  between touches and the tip settling 0.2 mm from the pin's point, the TCP is fitted to within
+  1.5 mm.
 
 ### Refusals
 
@@ -124,14 +148,14 @@ files into any URDF. Moving the arm is the person's; the arm's drivers are ros2_
 
 - **ARM-CFG-1** A profile is a YAML file with `name`, `base_link`, `tip_link` and, optionally,
   `description`, `tip`, `tip_offset`, `tool_axis`, `solve` (`zeros`, `tcp` or `zeros+tcp`),
-  `reference` (`dots` or `pin`), `free_joints`, `held_joints`, `tcp_link`, `plane_normal`, `dots`,
-  `shapes` and `tilt_deg`. A shape is a direction (`down`, `towards`, `away`, `left`, `right`) and
-  an optional lean in degrees (`tilt_deg` otherwise); the default is the five directions. Unknown
+  `reference` (`dots` or `pin`), `free_joints`, `held_joints`, `tcp_link`, `plane_normal`, `dots`
+  (3 by default), `shapes` (`down`, `towards`, `away`, `left`, `right`, each touched in the order
+  listed, and as often; all five once by default) and `min_lean_deg` (15 by default). Unknown
   settings, an unknown `solve` and an unknown shape are refused.
 - **ARM-CFG-2** Profiles shipped in `arm_calibration/arms/` are named by their file's stem; any
   other is given by its path. The default is `so101`.
 - **ARM-CFG-3** An arm is added by its profile alone.
-- **ARM-CFG-4** `so101` fits the shoulder lift, elbow and wrist flex zeros from five dots, each
-  touched straight down and leaning 20 and 40 degrees towards the base and away from it (its wrist
-  cannot lean sideways); holds the base pan and wrist roll; and expects the closed jaw tips 6.3 mm
+- **ARM-CFG-4** `so101` fits the shoulder lift, elbow and wrist flex zeros from three dots, each
+  touched down, leaning towards the base and leaning away from it (its wrist cannot lean
+  sideways), each lean at least 15 degrees; holds the base pan and wrist roll; and expects the closed jaw tips 6.3 mm
   beyond `gripper_frame_link` along its z axis.

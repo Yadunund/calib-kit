@@ -15,7 +15,7 @@
 """The arm, as a ros2_control stack presents it: its description, its joints, and its torque.
 
 Everything the calibration needs from a robot comes through the interfaces any ros2_control arm
-already has (README.md, "Contract"): the description on a ``std_msgs/msg/String`` topic, the
+already has (README.md, "What the robot must provide"): the description on a ``std_msgs/msg/String`` topic, the
 joints' positions on a ``sensor_msgs/msg/JointState`` topic, and the controller manager's services
 to release the arm. Releasing deactivates the controllers that claim the ros2_control hardware's
 command interfaces, then takes the hardware to inactive, which the contract requires to cut
@@ -43,7 +43,7 @@ from std_msgs.msg import String
 
 
 class ContractError(RuntimeError):
-    """The robot does not offer what the calibration needs (README.md, "Contract")."""
+    """The robot does not offer what the calibration needs (README.md, "What the robot must provide")."""
 
 
 class RosArm:

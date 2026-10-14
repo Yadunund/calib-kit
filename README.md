@@ -56,9 +56,9 @@ flowchart LR
 ```
 
 ```bash
-# Joint zeros: clamp the arm flat to a table, mark five dots, and touch each in the shapes asked.
+# Joint zeros: clamp the arm to a table; the tool helps you place three dots and touch each three ways.
 ros2 run arm_calibration calibrate_arm --profile so101 --solve zeros --reference dots --out ~/arm_cal
-# A tool centre point: jog the tool's point onto a fixed pin in five orientations.
+# A tool centre point: jog the tool's point onto a fixed pin in several orientations.
 ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --reference pin --out ~/arm_cal
 # Then use ~/arm_cal/<profile>_calibrated.urdf as the robot description.
 ```
@@ -66,10 +66,10 @@ ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --refer
 It reports each value with its uncertainty, and why any joint is held:
 
 ```text
-20 touches on 5 dots; the closed jaw tips 0.62 mm rms from them after the fit.
-  shoulder_lift_joint       +1.74 deg  (+- 0.17)
-  elbow_flex_joint          -2.31 deg  (+- 0.12)
-  wrist_flex_joint          +2.86 deg  (+- 0.14)
+9 touches on 3 dots; the closed jaw tips 0.58 mm rms from them after the fit.
+  shoulder_lift_joint       +1.74 deg  (+- 0.23)
+  elbow_flex_joint          -2.31 deg  (+- 0.35)
+  wrist_flex_joint          +2.86 deg  (+- 0.32)
   shoulder_pan_joint       held: its axis is the table's normal through the base, so turning it turns every dot with it
   wrist_roll_joint         held: its axis passes almost through the closed tips, so turning it barely moves them
   the closed jaw tips at [0.1 0.  6.2] mm in gripper_frame_link
@@ -79,7 +79,7 @@ It reports each value with its uncertainty, and why any joint is held:
 guide the arm by hand it releases it through the controller manager, taking its `<ros2_control>`
 hardware inactive, and restores the controllers it stopped however the run ends; a jogged arm
 stays under its own control. The
-[contract](arm_calibration/README.md#contract) states exactly what it needs and what it guarantees.
+[contract](arm_calibration/README.md#what-the-robot-must-provide) states exactly what it needs and what it guarantees.
 
 | Arm | Profile |
 |---|---|

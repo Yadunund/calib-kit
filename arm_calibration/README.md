@@ -1,187 +1,171 @@
 # arm_calibration
 
-Calibrates a robot arm against its URDF, with the arm itself and a fixed reference point:
+Makes a robot arm's URDF match the real arm. It measures two things:
 
-- **Joint zeros:** how far each joint's reading is from the angle the description means. A zero
-  set by eye (LeRobot's calibration sets it where a person judges the middle of each joint's
-  travel to be), or lost on any arm when a motor, encoder or encoder battery is changed or after a
-  collision, leaves a joint reading off; at 30 cm of reach, a degree at the shoulder moves the tip
-  about 5 mm.
-- **Tool centre point (TCP):** where a tool's working point is on the arm. A tool mounted on the
-  flange puts its point somewhere the description does not know; the TCP is added to the URDF as
-  a link, so planning and servoing can work in the tool's own point.
+- **Joint zeros:** how far each joint's reading is from the angle the URDF means. Zeros set by
+  eye (as LeRobot's calibration does), or lost after a motor or encoder change, are often a few
+  degrees off. At 30 cm of reach, one degree at the shoulder moves the tip about 5 mm.
+- **Tool centre point (TCP):** where a tool's working point is on the arm.
 
-| The arm | Calibrate | Reference |
+You touch fixed points with the arm's tip, holding the tool a few different ways. The tool fits
+the values that make the URDF agree with those touches, and writes a corrected URDF.
+
+| Your arm | Use | You need |
 |---|---|---|
-| Its zeros are off: set by eye, or lost after a repair | `zeros` | dots on the table |
-| Its zeros are off, and a tool is fitted | `zeros+tcp` | dots on the table |
-| Its zeros are right, and a tool is fitted | `tcp` | a sharp pin (or dots) |
+| Zeros set by eye, or lost after a repair | `--solve zeros` | a pen and a flat table |
+| Same, and a tool is fitted | `--solve zeros+tcp` | a pen and a flat table |
+| Zeros fine, new tool fitted | `--solve tcp --reference pin` | a sharp pin fixed in reach |
 
-Any arm can be moved however it moves: released through ros2_control and guided by hand
-(`--release lifecycle`), or guided in its own freedrive or jogged from a pendant or teleoperation
-(`--release none`). A low-cost arm is typically released and guided; an industrial one jogged.
+## Calibrate joint zeros (SO-ARM101)
 
-## How it works
+1. Clamp the arm flat to a table. Tape a sheet of paper under its reach. Have a fine pen ready.
+2. Start the arm's ros2_control stack, then run:
 
-The arm's tip (a gripper's closed jaws, a tool's point) is brought onto a fixed reference several
-times, the arm in a different shape each time: the tool straight down, then leaning towards the
-base, away from it and to either side. Every touch of one reference puts the tip on the same
-point, whatever the joints read. So the joint zeros, and where the tip is on the arm, are the
-ones that make the description agree with itself about where each reference is.
+   ```bash
+   ros2 run arm_calibration calibrate_arm --out ~/so101_cal
+   ```
 
-The references are not measured; their positions are fitted too.
+3. **Hold the arm and press Enter.** Its motors switch off and it will drop if you let go. Say
+   whether it now moves freely; if not, the tool restores the arm and stops.
+4. The tool says how far from the base the dots can go, and where to put each of the three.
+5. **For each dot:**
+   1. Rest the closed jaw tips on the paper where the dot will go, gripper pointing straight down.
+      The line under the prompt shows how far the gripper can tilt there. Press Enter when it says
+      `GOOD SPOT`.
+   2. Lift the gripper a little, mark a small dot (about 1 mm) where the tips were, and put the
+      tips back in it.
+   3. Touch the dot three ways, keeping the tips in the dot:
+      - **straight down;**
+      - **tilted towards the base:** the top of the gripper moves towards the base;
+      - **tilted away from the base:** the top of the gripper moves away from it.
 
-- **Pen dots** lie on the table the arm is clamped to, so on one plane, with a known normal (the
-  base's own z axis for an arm clamped flat) and a fitted height. That plane is what fixes a
-  shoulder that lifts the arm, so joint zeros need dots: three or more, spread over the arm's
-  reach (near the base, far out in front, to either side).
-- **A sharp pin**, fixed anywhere within reach, is the industrial way to find a TCP: the tool's
-  point is jogged onto the pin's in four or more orientations. A pin fixes the TCP, not the
-  zeros.
+      Tilt as far as the arm goes (at least 15 degrees). Hold still and press Enter for each. The
+      line under the prompt shows the current tilt. A touch tilted the wrong way, or too little, is
+      not recorded, and the tool says what to change.
+6. The tool prints the result and restores the arm.
 
-Some zeros no touch can show, and an arm's profile holds them:
+At each prompt: **Enter** records, **r** redoes the last touch, **s** skips this one, **q**
+finishes. If a dot's touches disagree by more than 20 mm, the tips probably slipped out of the
+dot: the tool offers to redo that dot.
 
-- a joint whose axis is the table's normal through the base: turning it turns every reference
-  with it;
-- a joint whose axis passes through the tip: turning it does not move the tip.
+Then use `~/so101_cal/so101_calibrated.urdf` as the robot description.
 
-Touches give the TCP's position, not the turn of a tool frame about it: the TCP link takes the
-axes of the link it is fixed to.
+## Calibrate a tool centre point (pin)
 
-Every fitted value comes with its uncertainty, and one the touches barely constrain is named as
-poorly measured.
-
-## Contract
-
-The calibration works with any arm driven by ros2_control. It needs nothing from the arm beyond
-what such a stack already offers; there is no code here for any particular actuator.
-
-**The robot provides** (names are the defaults; each has a flag):
-
-| What | Interface | Expectation |
-|---|---|---|
-| The description | `/robot_description`, `std_msgs/msg/String`, transient-local (as `robot_state_publisher` publishes it) | Holds the chain from the profile's `base_link` to its `tip_link`. `--urdf` gives a file instead. |
-| The joints | `/joint_states`, `sensor_msgs/msg/JointState` | Every joint of that chain by name, `position` in radians in the description's convention (`joint_state_broadcaster` does this), also while the arm is released. |
-| The controller manager | `/controller_manager`: `list_hardware_components`, `list_controllers`, `switch_controller`, `set_hardware_component_state` (`controller_manager_msgs/srv/...`) | As ros2_control's own. Needed only to release the arm. |
-| Releasing the arm | The ros2_control hardware holding the chain's joints (a `<ros2_control>` block of the description) | **Inactive, it applies no torque, so the arm moves by hand, and keeps reading its state interfaces**, so `/joint_states` keeps updating. `feetech_ros2_driver` does both. |
-
-**How the arm moves** (`--release`; the default follows the reference):
-
-- **`lifecycle`** (the default for dots): the arm is released and guided by hand.
-  1. Finds the ros2_control hardware (the controller manager's "hardware component") whose state
-     interfaces hold every joint of the chain, or the one named by `--ros2-control NAME` (the
-     `name` of its `<ros2_control>` block). It must be active.
-  2. Asks the person to hold the arm, then deactivates exactly the active controllers that claim
-     its command interfaces (strictly), and takes the hardware to inactive. Controllers that only
-     read, like `joint_state_broadcaster`, keep running.
-  3. Checks `/joint_states` is still updating. If not, it restores and stops: such an arm must be
-     freed by other means and calibrated with `--release none`.
-  4. However it ends (finished, quit, error, Ctrl-C), takes the hardware back to active and
-     reactivates those controllers. Activation seeds the commands with where the arm is, so
-     nothing jumps.
-- **`none`** (the default for a pin): the calibration only reads. The arm is moved under its own
-  control (a teach pendant, teleoperation, servoing), or freed by other means (a teach button,
-  gravity compensation).
-
-**It produces** files, and changes nothing on the robot: the description it read is corrected in
-a copy, `<ros2_control>` tags and all.
-
-## Calibrating
-
-With the arm's ros2_control stack running:
+Fix a sharp pin within reach. Then run, with your arm's profile:
 
 ```bash
-# Joint zeros, from five pen dots on the table, the arm guided by hand (the SO-ARM101's default).
-ros2 run arm_calibration calibrate_arm --out ~/so101_cal
-
-# A TCP, from a sharp pin, the arm jogged under its own control.
 ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve tcp --reference pin --out ~/my_arm_cal
-
-# Both, from dots.
-ros2 run arm_calibration calibrate_arm --profile my_arm.yaml --solve zeros+tcp --reference dots --out ~/my_arm_cal
 ```
 
-- **For each reference, the profile's shapes:** the tool straight down, then leaning towards the
-  base, away from it, and to either side (by default 40 degrees each). An arm whose wrist cannot
-  lean sideways leans twice each way instead. Turning the tool about its own axis between touches
-  helps too. Bring the tip onto the reference, hold still, press Enter. The tool says how
-  the tool leans in each touch, so you can check the shape; a shape the arm cannot take there can
-  be skipped.
-- **The result** is each value with its uncertainty, and how far the tip was from its
-  references. A touch more than 2 mm off is named, so you can redo it.
-- **What cannot be measured is refused:** zeros from a pin, or from fewer than three dots.
+The arm stays under its own control: jog it (pendant, teleoperation) until the tool's point meets
+the pin's, in each way the tool asks. Turn the tool a little about its own axis between touches.
 
-It writes, in `--out`:
+## The result
 
-- **`joint_zeros.yaml`** (`zeros`): each offset in radians (add it to the joint's reading for the
-  description's angle) and its uncertainty.
-- **`tcp.yaml`** (`tcp`): the TCP's position in `tip_link`, metres, its uncertainty on each
-  axis, and the link it becomes.
-- **`<profile>_calibrated.urdf`:** the description with the calibration folded in. Each joint's
-  origin is turned by its zero offset about the joint's axis, its limits shifted so they bound the
-  same physical travel; the TCP is a link fixed to `tip_link` (`tcp_link` by default), moved
-  there if the description already has it.
-- **`touches.json` and `description.urdf`:** every touch and the description it was read
-  against. `--refit touches.json` fits them again with no robot.
+```text
+9 touches on 3 dots; the closed jaw tips 0.58 mm rms from them after the fit.
+  shoulder_lift_joint       +1.74 deg  (+- 0.23)
+  elbow_flex_joint          -2.31 deg  (+- 0.35)
+  wrist_flex_joint          +2.86 deg  (+- 0.32)
+  shoulder_pan_joint       held: its axis is the table's normal through the base, so turning it turns every dot with it
+  wrist_roll_joint         held: its axis passes almost through the closed tips, so turning it barely moves them
+```
 
-Joint zeros hold for the actuators' own calibration they were measured with (a Feetech arm's
-homing offsets, say): after recalibrating the actuators, calibrate again. A TCP holds for the tool
-as mounted.
+Each value comes with its uncertainty (one standard deviation). A value the touches could not pin
+down is marked "poorly measured", and a touch more than 2 mm off is named so you can redo it.
+Zeros from a pin, or from fewer than three dots, are refused.
 
-To fold a calibration into another URDF (one generated with other xacro arguments, say):
+Files written to `--out`:
+
+| File | Holds |
+|---|---|
+| `<profile>_calibrated.urdf` | Your URDF with the zeros and TCP folded in |
+| `joint_zeros.yaml` | Each zero offset in radians (add it to the joint's reading) and its uncertainty |
+| `tcp.yaml` | The TCP in `tip_link`, metres, its uncertainty, and the link it becomes |
+| `touches.json`, `description.urdf` | The raw touches and the URDF they were read against |
+
+To fit recorded touches again, without the robot:
+
+```bash
+ros2 run arm_calibration calibrate_arm --refit ~/so101_cal/touches.json --out ~/so101_cal
+```
+
+To fold the result into another URDF (one built with other xacro arguments, say):
 
 ```bash
 ros2 run arm_calibration apply_calibration --urdf arm.urdf --zeros joint_zeros.yaml --tcp tcp.yaml --out arm_calibrated.urdf
 ```
 
+Zeros hold until the actuators' own calibration changes; recalibrate after it does. A TCP holds
+for the tool as mounted.
+
+## What the robot must provide
+
+Any ros2_control arm works; there is no code for a particular actuator. Topic and service names
+below are defaults, each with a flag.
+
+| What | Interface | Needs |
+|---|---|---|
+| URDF | `/robot_description` (`std_msgs/msg/String`, transient-local), or `--urdf` | The chain from the profile's `base_link` to `tip_link`, with joint limits |
+| Joints | `/joint_states` (`sensor_msgs/msg/JointState`) | Every chain joint by name, in radians, also while the arm is released |
+| Controller manager | `/controller_manager` services: `list_hardware_components`, `list_controllers`, `switch_controller`, `set_hardware_component_state` | Only to release the arm |
+| Release | The `<ros2_control>` hardware holding the chain's joints | **When inactive, its motors have no torque** and it keeps reading joint positions |
+
+How the arm is moved (`--release`):
+
+- `lifecycle` (default for dots): stops the controllers that command the arm, takes its hardware
+  inactive so you can move it by hand, and always restores both at the end, however the run ends.
+  `--ros2-control NAME` picks the hardware if more than one holds the joints.
+- `none` (default for a pin): changes nothing on the robot. You move the arm with its own controls,
+  or free it some other way.
+
+Nothing is written to the robot; the corrected URDF is a new file.
+
 ## Arms
 
-An arm is a profile: a YAML file of data, given by its path (`--profile path/to/arm.yaml`), or
-one shipped in [`arm_calibration/arms/`](arm_calibration/arms), named by its stem. The default
-is `so101`.
-
-| Arm | Profile |
-|---|---|
-| SO-ARM101 | `so101` |
+An arm is a profile: a YAML file. Shipped profiles are in
+[`arm_calibration/arms/`](arm_calibration/arms) and named by file name (`--profile so101`, the
+default); any other is given by its path.
 
 ```yaml
 name: so101
-description: SO-ARM101, Feetech STS3215 servos homed with LeRobot's calibration
 base_link: base_link
-tip_link: gripper_frame_link  # the frame nearest the point that touches the references
-tip: the closed jaw tips      # what touches them
-tip_offset: [0, 0, 0.0063]    # where it is expected in tip_link, metres
+tip_link: gripper_frame_link  # the frame nearest the point that touches
+tip: the closed jaw tips      # what touches, in words
+tip_offset: [0, 0, 0.0063]    # where it is in tip_link, metres
 tool_axis: [0, 0, 1]          # tip_link's axis pointing out of the tool
 solve: zeros                  # zeros, tcp or zeros+tcp
 reference: dots               # dots or pin
 free_joints: [shoulder_lift_joint, elbow_flex_joint, wrist_flex_joint]
-held_joints:                  # the rest of the chain's joints, and why
+held_joints:                  # joints touches cannot measure, and why
   shoulder_pan_joint: its axis is the table's normal through the base
   wrist_roll_joint: its axis passes almost through the closed tips
 plane_normal: [0, 0, 1]       # the table's normal in the base frame
-dots: 5
-shapes: [down, towards 20, towards 40, away 20, away 40]  # its wrist cannot lean sideways
-tilt_deg: 40                  # the lean of a shape given without one
+dots: 3
+shapes: [down, towards, away] # the wrist cannot tilt sideways, so no left or right
+min_lean_deg: 15              # each tilt at least this far
 ```
 
-An industrial arm with a tool needs only its chain and what to calibrate, for example:
+A tool on an industrial arm needs little more than its chain:
 
 ```yaml
 name: my_arm_with_torch
 base_link: base_link
-tip_link: tool0               # the flange
+tip_link: tool0
 tip: the torch's wire tip
-tip_offset: [0, 0, 0.25]      # roughly where the tool's point is, from its drawing
+tip_offset: [0, 0, 0.25]      # roughly, from the tool's drawing
 solve: tcp
 reference: pin
 tcp_link: torch_tcp
 ```
 
-To add an arm: bring it up with ros2_control and write its profile. A value the touches cannot
-measure is reported with a large uncertainty; hold it in the profile.
+A shape is `down`, `towards`, `away`, `left` or `right`: which way the top of the tool moves.
+Left and right are as seen from the base, looking out at the dot. List a shape twice to touch it
+twice. A value that comes out poorly measured on a new arm should be held in its profile.
 
 ## Tests
 
 ```bash
-pixi run test   # from the repository's root; or pytest, in a sourced ROS 2 workspace
+pixi run test   # from the repository root; or pytest in a sourced ROS 2 workspace
 ```

@@ -71,6 +71,7 @@ class Joint:
     origin_rotation: np.ndarray
     origin_xyz: np.ndarray
     axis: np.ndarray
+    limits: tuple[float, float] = (-math.inf, math.inf)  # lower and upper, from <limit>
 
     def transform(self, q: float) -> np.ndarray:
         t = np.eye(4)
@@ -113,6 +114,10 @@ class Chain:
             axis = element.find("axis")
             vector = np.array([1.0, 0.0, 0.0] if axis is None else [float(v) for v in axis.get("xyz").split()])
             norm = np.linalg.norm(vector)
+            limit = element.find("limit")
+            limits = (-math.inf, math.inf)
+            if limit is not None and element.get("type") in ("revolute", "prismatic"):
+                limits = (float(limit.get("lower", "-inf")), float(limit.get("upper", "inf")))
             self.joints.append(
                 Joint(
                     element.get("name"),
@@ -120,9 +125,11 @@ class Chain:
                     rotation,
                     xyz,
                     vector / norm if norm > 0 else vector,
+                    limits,
                 )
             )
         self.movable = [j.name for j in self.joints if j.kind != "fixed"]
+        self.limits = {j.name: j.limits for j in self.joints if j.kind != "fixed"}
 
     def forward(self, positions: dict[str, float], zeros: dict[str, float] | None = None) -> np.ndarray:
         """The tip link's pose in the base link's frame (4x4) for joint `positions` as read, each
